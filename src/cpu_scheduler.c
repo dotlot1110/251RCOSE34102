@@ -4,7 +4,7 @@
 
 #define MAX_PROCESSES 10
 #define MAX_TIME_QUANTUM 5
-#define SCHEDULERS 6 //구현한 스케줄러 개수
+#define SCHEDULERS 7 //구현한 스케줄러 개수
 #define MAX_IO_NUM 2
 
 typedef struct {
@@ -22,7 +22,7 @@ typedef struct {
     int response_time; // -1로 초기화, 최초로 running 상태가 될 때의 시각 - arrival time
     int completion_time; // -1로 초기화, 프로세스 완료 시각, turnaround = completion - arrival
 } ProcessData;
-/*============================================================================================================*/
+/*=====Process================================================================================================*/
 void shuffle(int *arr, int n) { // I/O 발생 시간을 랜덤으로 선택하기 위한 함수
     for (int i = n - 1; i > 0; i--) {
         int j = rand() % (i + 1);
@@ -39,7 +39,7 @@ int compare(const void* a, const void* b) { //qsort의 정렬 기준을 오름�
 void AssignProcessValues(ProcessData *p, int i) {
     p->pid = i;
     p->arrival_time = rand() % 11; // 0 ~ 10
-    p->priority = rand() % 5 + 1; // 1 ~ 5, higher number the higher priority
+    p->priority = rand() % 10 + 1; // 1 ~ 10, higher number the higher priority
     p->cpu_burst = rand() % 10 + 1; // 1 ~ 10
 
     for (int j = 0; j < MAX_IO_NUM; j++) {
@@ -85,7 +85,6 @@ void DisplayProcessInfo(ProcessData *p, int pNum) {
         }
         printf("\n");
     }
-    printf("===============================================================\n\n");
 }
 
 void CreateProcess(ProcessData p[], int pNum) {
@@ -95,7 +94,7 @@ void CreateProcess(ProcessData p[], int pNum) {
     }
     DisplayProcessInfo(p, pNum);
 }
-/*============================================================================================================*/
+/*=====Queues=================================================================================================*/
 typedef struct Node {
     ProcessData *p_process;
     struct Node *next;
@@ -144,8 +143,39 @@ ProcessData* Dequeue(Queue *q) {
     return returnProcess;
 }
 
+void SortReadyQueue(Queue *q, int criteria) {
+    if (!q || !q->front || !q->front->next) return;
+
+    Node *sorted = NULL;  // 정렬된 새 리스트
+
+    while (q->front != NULL) {
+        Node *curr = q->front;
+        q->front = curr->next;
+        curr->next = NULL;
+
+        // 삽입할 위치 탐색
+        if (!sorted || CompareProcess(curr->p_process, sorted->p_process, criteria) < 0) {
+            curr->next = sorted;
+            sorted = curr;
+        } else {
+            Node *prev = sorted;
+            while (prev->next && CompareProcess(curr->p_process, prev->next->p_process, criteria) >= 0)
+                prev = prev->next;
+            curr->next = prev->next;
+            prev->next = curr;
+        }
+    }
+    q->front = sorted;
+
+    // rear 갱신
+    Node *rear = q->front;
+    while (rear && rear->next) rear = rear->next;
+    q->rear = rear;
+}
+
+
 void InitRuntimeData(ProcessData p[], int pNum) {
-    // Process data 영역은 job queue라고 생각
+    // Process data 영역은 일종의 job queue
     for (int i = 0; i < pNum; i++) {
         p[i].remaining_time = p[i].cpu_burst;
         p[i].remaining_io = -1;
@@ -155,10 +185,10 @@ void InitRuntimeData(ProcessData p[], int pNum) {
     }
 }
 
-void Config(ProcessData p[], Queue *readyQ, Queue *waitQ, int pNum) {
+void Config(ProcessData p[], Queue *ready, Queue *wait, int pNum) {
     InitRuntimeData(p, pNum);
-    InitQueue(readyQ);
-    InitQueue(waitQ);
+    InitQueue(ready);
+    InitQueue(wait);
 }
 
 int IsAllTerminated(ProcessData p[], int pNum) {
@@ -169,15 +199,15 @@ int IsAllTerminated(ProcessData p[], int pNum) {
     }
     return 1;
 }
-/*============================================================================================================*/
-void FCFS(ProcessData p[], int pNum, Queue *ready, ProcessData **running, int current_time) {
+/*=====Schedulers=============================================================================================*/
+void FCFS(Queue *ready, ProcessData **running, int current_time) {
     if (*running == NULL && ready->front != NULL) { // 레디큐에 프로세스가 존재하고 실행중인 프로세스 없음
         *running = Dequeue(ready);
         //printf("[%2d] process %d : ready -> running\n", current_time, (*running)->pid); // log for debugging
     }
 }
 
-void SJF(ProcessData p[], int pNum, Queue *ready, ProcessData **running, int current_time, int preemptive, Queue *state) { // remaining_time 사용
+void SJF(Queue *ready, ProcessData **running, int current_time, int preemptive, Queue *state) { // remaining_time 사용
     // ready queue가 비어 있는 경우
     if (ready->front == NULL) return;
 
@@ -214,7 +244,7 @@ void SJF(ProcessData p[], int pNum, Queue *ready, ProcessData **running, int cur
         // ready queue에서 shortest 노드 제거
         if (shortest == ready->front) { // shortest가 front면 간단
             ready->front = shortest->next;
-            if (ready->front == NULL) ready->rear = NULL;
+            if (ready->front == NULL) ready->rear = NULL; // ready queue가 비어버린 경우
         } else {
             prev_shortest->next = shortest->next; // 저장중인 다른 노드를 활용하여 재연결
             if (shortest == ready->rear) ready->rear = prev_shortest;
@@ -226,15 +256,15 @@ void SJF(ProcessData p[], int pNum, Queue *ready, ProcessData **running, int cur
     }
 }
 
-void Priority(ProcessData p[], int pNum, Queue *ready, ProcessData **running, int current_time, int preemptive, Queue *state) { // priority 사용
+void Priority(Queue *ready, ProcessData **running, int current_time, int preemptive, Queue *state) { // priority 사용
     if (ready->front == NULL) return;
 
-    // highest priority 탐색
+    // highest priority 탐색 (1에 가까울수록 높은 우선순위)
     Node *highest = ready->front;
     Node *prev = NULL, *curr = ready->front, *prev_highest = NULL;
 
     while (curr != NULL) {
-        if (curr->p_process->priority < highest->p_process->priority) { // 우선순위 같으면 front에 가까운 쪽이 계속 가져감
+        if (curr->p_process->priority < highest->p_process->priority) { // priority '값'이 작은 쪽이 'priority'가 높다
             highest = curr;
             prev_highest = prev;
         }
@@ -273,7 +303,7 @@ void Priority(ProcessData p[], int pNum, Queue *ready, ProcessData **running, in
     }
 }
 
-void RoundRobin(ProcessData p[], int pNum, Queue *ready, ProcessData **running, int current_time, int time_quantum, int *time_slice, Queue *state) {
+void RoundRobin(Queue *ready, ProcessData **running, int current_time, int time_quantum, int *time_slice, Queue *state) {
     // Schedule의 for문 내부에서 tilme_slice를 통해 어떤 프로세스가 연속으로 점유한 시간을 계산
     // RoundRobin은 매번 time_slice를 받아 그 값이 time quantum을 초과하였는지 확인
 
@@ -304,7 +334,54 @@ void RoundRobin(ProcessData p[], int pNum, Queue *ready, ProcessData **running, 
     }
 }
 
+void LotteryScheduling(Queue *ready, ProcessData **running, int current_time, Queue *state) {
+    if (ready->front == NULL) return;
 
+    Node *winner = ready->front;
+    Node *prev = NULL;
+    int total_tickets = 0;
+    int ticket_count = 0;
+    // Priority가 티켓의 수가 됨 (higher number higher probability)
+    for (Node *node = ready->front; node != NULL; node = node->next) {
+        total_tickets += node->p_process->priority;
+    }
+    int win = rand() % total_tickets; // 0 ~ total-1 
+
+    for (Node *node = ready->front; node != NULL; node = node->next) {
+        ticket_count += node->p_process->priority;
+        if (win <= ticket_count) {
+            winner = node;
+            break;
+        }
+        prev = node;
+    }
+
+    if (*running != NULL) { // 기본적으로 preemptive
+        if (winner->p_process->pid == (*running)->pid) { // 당첨자가 동일하면 그냥 두면 됨
+            return;
+        }
+        // preemption
+        Enqueue(ready, *running);
+        //printf("[%2d] process %d : running -> ready (preempted)\n", current_time, (*running)->pid); // log for debugging
+        Enqueue(state, *running);
+        state->rear->time = current_time;
+        state->rear->data = 'p';
+
+        *running = NULL;
+    }
+
+    if (winner == ready->front) {
+        ready->front = winner->next;
+        if (ready->front == NULL) ready->rear = NULL;
+    } else {
+        prev->next = winner->next;
+        if (winner == ready->rear) ready->rear = prev;
+    }
+
+    *running = winner->p_process;
+    //printf("[%2d] process %d : ready -> running\n", current_time, (*running)->pid); // log for debugging
+    free(winner);
+}
 
 void PrintGanttChart(ProcessData p[], int pNum, Queue *state_queue) {
     Node *node = state_queue->front;
@@ -384,36 +461,32 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
     InitQueue(&state_queue);
 
     for (int current_time = 0; !IsAllTerminated(p, pNum); current_time++) {
-        // 이번 시간 시작
-            // new arrival
-        for (int i = 0; i < pNum; i++) {
-            if (p[i].arrival_time == current_time) {
-                //printf("[%2d] process %d arrived\n", current_time, p[i].pid); // Arrival // log for debugging
-                Enqueue(&ready_queue, &p[i]);
-            }
-        }
-
-        // 이번 시간 진행 중
-            // ready
-        for (Node *node = ready_queue.front; node != NULL; node = node->next) {
-            node->p_process->waiting_time++;
-        }
+        // 이번 시간 진행
             // running
         if (running != NULL) {
             running->remaining_time--;
             time_slice++;
             is_idle[0] = 0;
-        } 
-        if (running == NULL) {
+        } else {
             is_idle[0] = 1;
         }
             // waiting
         for (Node *node = wait_queue.front; node != NULL; node = node->next) {
             node->p_process->remaining_io--;
         }
-
-        // 이번 시간 결과 정산 + 다음 시간 상태 준비
-            // running
+            // ready
+        for (Node *node = ready_queue.front; node != NULL; node = node->next) {
+                node->p_process->waiting_time++;
+        }
+            // ready (new arrival)
+        for (int i = 0; i < pNum; i++) {
+            if (p[i].arrival_time == current_time) {
+                //printf("[%2d] process %d arrived\n", current_time, p[i].pid); // Arrival // log for debugging
+                Enqueue(&ready_queue, &p[i]);
+            }
+        }
+        // 이번 시간 결과로부터 다음 시간 상태 준비
+            // running 지속 여부 판단
         if (running != NULL) {
                 // termination
             if (running->remaining_time == 0) { 
@@ -430,8 +503,8 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                 // io event 
                 int progress = running->cpu_burst - running->remaining_time;
                 for (int i = 0; i < MAX_IO_NUM; i++) { // progress가 io timing 도달했는지 확인
-                    if (running->io_timing[i] == -1) {
-                        break;
+                    if (running->io_timing[i] == -1) { // io가 발생하지 않는 경우
+                        break; 
                     }
                     if (running->io_timing[i] == progress) {
                         running->remaining_io = running->io_burst[i];
@@ -449,8 +522,8 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                 }
             }
         }
-            // waiting
-        Queue new_wait_queue; // wait queue 최신화
+            // waiting queue 최신화
+        Queue new_wait_queue;
         InitQueue(&new_wait_queue);
 
         for (Node *node = wait_queue.front; node != NULL; ) { // 현재 wait queue 순회
@@ -467,30 +540,33 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
             node = next; // 다음 노드 지정
         }
         wait_queue = new_wait_queue; // wait queue의 front와 rear 변경
-            // next running
+            // next running process
         switch (alg_id) {
             case 0:
-                FCFS(p, pNum, &ready_queue, &running, current_time);
+                FCFS(&ready_queue, &running, current_time);
                 break;
             case 1:
-                SJF(p, pNum, &ready_queue, &running, current_time, 0, &state_queue);
+                SJF(&ready_queue, &running, current_time, 0, &state_queue);
                 break;
             case 2:
-                SJF(p, pNum, &ready_queue, &running, current_time, 1, &state_queue);
+                SJF(&ready_queue, &running, current_time, 1, &state_queue);
                 break;
             case 3:
-                Priority(p, pNum, &ready_queue, &running, current_time, 0, &state_queue);
+                Priority(&ready_queue, &running, current_time, 0, &state_queue);
                 break;
             case 4:
-                Priority(p, pNum, &ready_queue, &running, current_time, 1, &state_queue);
+                Priority(&ready_queue, &running, current_time, 1, &state_queue);
                 break;
             case 5:
-                RoundRobin(p, pNum, &ready_queue, &running, current_time, tq, &time_slice, &state_queue);
+                RoundRobin(&ready_queue, &running, current_time, tq, &time_slice, &state_queue);
+                break;
+            case 6:
+                LotteryScheduling(&ready_queue, &running, current_time, &state_queue); // time quantum = 1
                 break;
             default:
                 break;
         }
-
+            // state tracking
         if (running == NULL && !IsAllTerminated(p, pNum)) {
             //printf("[%2d] idle\n", current_time); // log for debugging
             is_idle[1] = 1;
@@ -501,17 +577,8 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
         }
     }
     PrintGanttChart(p, pNum, &state_queue);
-
-    //debugging
-    /*
-    for (int i = 0; i < pNum; i++) {
-        printf("completion time : %d\n", p[i].completion_time);
-    }
-    */
-    
 }
-/*============================================================================================================*/
-/*=====Evaluation=====*/
+/*=====Evaluation=============================================================================================*/
 void Evaluation(int alg_id, ProcessData p[], int pNum) {
     float avg_waiting_time = 0;
     float avg_turnaround_time = 0;
@@ -519,6 +586,11 @@ void Evaluation(int alg_id, ProcessData p[], int pNum) {
     for (int i = 0; i < pNum; i++) {
         avg_waiting_time += p[i].waiting_time;
         avg_turnaround_time += p[i].completion_time - p[i].arrival_time;
+        /*
+        printf("arrv P%d : %d\n", i, p[i].arrival_time); //debugging
+        printf("wait P%d : %d\n", i, p[i].waiting_time); //debugging
+        printf("comp P%d : %d\n", i, p[i].completion_time); //debugging
+        */
     }
     avg_waiting_time = avg_waiting_time / (float)pNum;
     avg_turnaround_time = avg_turnaround_time / (float)pNum;
@@ -542,16 +614,20 @@ void Evaluation(int alg_id, ProcessData p[], int pNum) {
         case 5:
             printf("RoundRobin\n");
             break;
+        case 6:
+            printf("Lottery Scheduling\n");
+            break;
+
     }
     printf("average waiting time    : %.2f\n", avg_waiting_time);
     printf("average turnaround time : %.2f\n\n\n", avg_turnaround_time);
 }
-/*============================================================================================================*/
-/*=====main=====*/
+/*=====Main===================================================================================================*/
 int main(void) {
-    int processNum, timeQuantum, alg_id;
+    int processNum, timeQuantum, mode, alg_id;
     ProcessData processes[MAX_PROCESSES];
 
+    printf("Process number - Time quantum - Simulation mode (- Scheduling algorithm)\n");
     printf("total process (1~10) : ");
     scanf("%d", &processNum);
     if (processNum < 1 || processNum > MAX_PROCESSES) {
@@ -564,23 +640,29 @@ int main(void) {
         printf("out of range\n");
         return 0;
     }
-    /* by mode (debugging) 
-    printf("scheduling algorithm id (0~5) : ");
-    scanf("%d", &alg_id);
-    if (alg_id < 0 || alg_id >= SCHEDULERS) {
-        printf("out of range\n");
-        return 0;
-    }
+    printf("Simulation mode (0: Schedule by all algorithms, 1: Schedule by specific algorithm) : ");
+    scanf("%d", &mode);
 
-    CreateProcess(processes, processNum);
-    Schedule(alg_id, processes, processNum, timeQuantum);
-    Evaluation(alg_id, processes, processNum);
-    */
-
-    CreateProcess(processes, processNum);
-    for (int i = 0; i < SCHEDULERS; i++) {
+    if (mode == 0) { // 알고리즘별로 순차 실행
+        CreateProcess(processes, processNum);
+        for (int i = 0; i < SCHEDULERS; i++) {
         Schedule(i, processes, processNum, timeQuantum);
         Evaluation(i, processes, processNum);
+        }
+    } else if (mode ==1) { // 특정 알고리즘만 선택하기
+        printf("(0: FCFS, 1: N_SJF, 2: P_SJF, 3: N_Pri, 4: P_Pri, 5: RR, 6: Lottery)\n");
+        printf("scheduling algorithm id(0 ~ %d) : ", SCHEDULERS - 1);
+        scanf("%d", &alg_id);
+        if (alg_id < 0 || alg_id >= SCHEDULERS) {
+            printf("out of range\n");
+            return 0;
+        }
+        CreateProcess(processes, processNum);
+        Schedule(alg_id, processes, processNum, timeQuantum);
+        Evaluation(alg_id, processes, processNum);
+    } else {
+        printf("out of range\n");
+        return 0;
     }
     return 0;
 }
