@@ -4,7 +4,7 @@
 
 #define MAX_PROCESSES 10
 #define MAX_TIME_QUANTUM 5
-#define SCHEDULERS 7 //구현한 스케줄러 개수
+#define SCHEDULERS 8 //구현한 스케줄러 개수
 #define MAX_IO_NUM 2
 
 typedef struct {
@@ -19,7 +19,7 @@ typedef struct {
     int remaining_time; // cpu_burst로 초기화, 남은 cpu burst 시간. SJF에서 이걸 기준으로 정렬
     int remaining_io; // -1로 초기화, I/O 발생 시각에 burst 값으로 바뀌고 1씩 감소하여 0이 되면 ready로 복귀
     int waiting_time; // ready queue에서 머무른 시간, turnaround - cpu_burst - io_burst
-    int response_time; // -1로 초기화, 최초로 running 상태가 될 때의 시각 - arrival time
+    int response_time; // -1로 초기화, (최초로 running 상태가 될 때의 시각 - arrival time)
     int completion_time; // -1로 초기화, 프로세스 완료 시각, turnaround = completion - arrival
 } ProcessData;
 /*=====Process================================================================================================*/
@@ -144,39 +144,57 @@ ProcessData* Dequeue(Queue *q) {
 }
 
 int CompareProcess(ProcessData *a, ProcessData *b, int criteria) {
-    if (criteria == 0) { // SJF
-        return a->remaining_time - b->remaining_time;
-    } else if (criteria == 1) { // Priority
-        return a->priority - b->priority;
-    } else return 0;
+    switch (criteria) {
+        case 0: // SJF
+            return a->remaining_time - b->remaining_time;
+        case 1: // Priority
+            return a->priority - b->priority;
+        case 2: // 임박한 io 우선
+            int io_a = -2;
+            int io_b = -2;
+            for (int i = 0; i < MAX_IO_NUM; i++) { // 가장 가까운 시간의 io burst 탐색
+                if (a->io_timing[i] != -1 && (a->cpu_burst - a->remaining_time) < a->io_timing[i]) {
+                    io_a = a->io_burst[i];
+                    break;
+                }
+            }
+            for (int i = 0; i < MAX_IO_NUM; i++) {
+                if (b->io_timing[i] != -1 && (b->cpu_burst - b->remaining_time) < b->io_timing[i]) {
+                    io_b = b->io_burst[i];
+                    break;
+                }
+            }
+            return io_b - io_a; // burst 길수록 우선 실행되도록
+    }
 }
 
 void SortReadyQueue(Queue *q, int criteria) {
-    // dequeue를 사용할 수 있도록 front가 가장 높은 우선순위(remain 또는 priority 오름차순)로 정렬
-    if (!q || !q->front || !q->front->next) return; // 큐가 없거나 비었거나 값이 1개 뿐인 경우 정렬이 안됨
+    // Dequeue()를 활용할 수 있도록 front가 가장 높은 우선순위(remain 또는 priority 오름차순, io burst의 내림차순)로 정렬
+    if (!q || !q->front || !q->front->next) return; // 큐가 없거나 비었거나 값이 1개 뿐인 경우
     Node *sorted = NULL; 
 
     while (q->front != NULL) {
-        Node *curr = q->front;
-        q->front = curr->next;
-        curr->next = NULL;
+        Node *insert = q->front;
+        q->front = insert->next;
+        insert->next = NULL;
 
         // 삽입할 위치 탐색
-        if (!sorted || CompareProcess(curr->p_process, sorted->p_process, criteria) < 0) {
-            curr->next = sorted;
-            sorted = curr;
+        if (!sorted || CompareProcess(insert->p_process, sorted->p_process, criteria) < 0) { // sorted 초기 또는 sorted 첫 번째 값이 insert보다 큼
+            insert->next = sorted; // insert가 sorted의 맨 앞으로 추가
+            sorted = insert;
         } else {
             Node *prev = sorted;
-            while (prev->next && CompareProcess(curr->p_process, prev->next->p_process, criteria) >= 0)
+            while (prev->next && CompareProcess(insert->p_process, prev->next->p_process, criteria) >= 0) // 자신보다 큰 값 만나거나 끝까지 이동
                 prev = prev->next;
-            curr->next = prev->next;
-            prev->next = curr;
+            insert->next = prev->next;
+            prev->next = insert;
         }
     }
     q->front = sorted;
+    // 기존 큐 앞에서부터 탐색하고, 같은 값이어도 뒤에 삽입되므로 remaining_time이나 priority가 같다면 레디큐에 먼저 들어온 프로세스가 우선순위 가짐
 
     Node *rear = q->front;
-    while (rear && rear->next) rear = rear->next;
+    while (rear && rear->next) rear = rear->next; // rear를 끝에 갖다놓기
     q->rear = rear;
 }
 
@@ -336,6 +354,17 @@ void LotteryScheduling(Queue *ready, ProcessData **running, int current_time, in
     }
 }
 
+void LongestIOFirst(Queue *ready, ProcessData **running, int current_time, Queue *state) { // nonpreemptive
+    // ready queue가 비어 있는 경우
+    if (ready->front == NULL) return;
+
+    SortReadyQueue(ready, 2);
+    // next running
+    if (*running == NULL) {
+        *running = Dequeue(ready);
+    }
+}
+
 void PrintGanttChart(ProcessData p[], int pNum, Queue *state_queue) {
     Node *node = state_queue->front;
     int chartSize = 0;
@@ -436,7 +465,7 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
         for (int i = 0; i < pNum; i++) {
             if (p[i].arrival_time == current_time) {
                 //printf("[%2d] process %d arrived\n", current_time, p[i].pid); // Arrival // log for debugging
-                Enqueue(&ready_queue, &p[i]);
+                Enqueue(&ready_queue, &p[i]); // pid 순으로 enqueue되므로 도착시간 같으면 pid 작은 쪽이 우선 진입하는 셈
             }
         }
         // 이번 시간 결과로부터 다음 시간 상태 준비
@@ -452,7 +481,6 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                 state_queue.rear->data = 't'; // 't'erminated
 
                 running = NULL;
-                //occupancy_time = 0; 중복된 초기화
             } else {
                 // io event 
                 int progress = running->cpu_burst - running->remaining_time;
@@ -470,7 +498,6 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                         state_queue.rear->data = 'i'; // 'i'nterrupted (I/O)
 
                         running = NULL;
-                        //occupancy_time = 0; 중복된 초기화
                         break;
                     }
                 }
@@ -515,7 +542,10 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                 RoundRobin(&ready_queue, &running, current_time, tq, &occupancy_time, &state_queue);
                 break;
             case 6:
-                LotteryScheduling(&ready_queue, &running, current_time, tq, &occupancy_time, &state_queue); // time quantum = 1
+                LotteryScheduling(&ready_queue, &running, current_time, tq, &occupancy_time, &state_queue); // time quantum마다
+                break;
+            case 7:
+                LongestIOFirst(&ready_queue, &running, current_time, &state_queue);
                 break;
             default:
                 break;
@@ -576,7 +606,9 @@ void Evaluation(int alg_id, ProcessData p[], int pNum) {
         case 6:
             printf("Lottery Scheduling\n");
             break;
-
+        case 7:
+            printf("Nonpreemptive LongestIOFirst\n");
+            break;
     }
     printf("average waiting time    : %.2f      (", avg_waiting_time);
     for (int i = 0; i < pNum; i++) {
@@ -625,7 +657,7 @@ int main(void) {
         Evaluation(i, processes, processNum);
         }
     } else if (mode ==1) { // 특정 알고리즘만 선택하기
-        printf("(0: FCFS, 1: N_SJF, 2: P_SJF, 3: N_Pri, 4: P_Pri, 5: RR, 6: Lottery)\n");
+        printf("(0: FCFS, 1: N_SJF, 2: P_SJF, 3: N_Pri, 4: P_Pri, 5: RR, 6: Lottery, 7: N_LongestIOFirst)\n");
         printf("scheduling algorithm id(0 ~ %d) : ", SCHEDULERS - 1);
         scanf("%d", &alg_id);
         if (alg_id < 0 || alg_id >= SCHEDULERS) {
