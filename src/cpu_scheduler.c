@@ -1,10 +1,10 @@
 #include <stdio.h>
-#include <stdlib.h> //for srand()
+#include <stdlib.h> //for srand(), qsort()
 #include <time.h>  //for time()
 
 #define MAX_PROCESSES 10
 #define MAX_TIME_QUANTUM 5
-#define SCHEDULERS 8 //구현한 스케줄러 개수
+#define SCHEDULERS 9 //구현한 스케줄러 개수
 #define MAX_IO_NUM 2
 
 typedef struct {
@@ -21,6 +21,7 @@ typedef struct {
     int waiting_time; // ready queue에서 머무른 시간, turnaround - cpu_burst - io_burst
     int response_time; // -1로 초기화, (최초로 running 상태가 될 때의 시각 - arrival time)
     int completion_time; // -1로 초기화, 프로세스 완료 시각, turnaround = completion - arrival
+    int total_remaining_io; // 유효한 io_burst의 합으로 초기화, I/O request 발생 시 한 번에 감소. I/O bound process first 방식에서 사용.
 } ProcessData;
 /*=====Process================================================================================================*/
 void shuffle(int *arr, int n) { // I/O 발생 시간을 랜덤으로 선택하기 위한 함수
@@ -149,22 +150,8 @@ int CompareProcess(ProcessData *a, ProcessData *b, int criteria) {
             return a->remaining_time - b->remaining_time;
         case 1: // Priority
             return a->priority - b->priority;
-        case 2: // 임박한 io 우선
-            int io_a = -2;
-            int io_b = -2;
-            for (int i = 0; i < MAX_IO_NUM; i++) { // 가장 가까운 시간의 io burst 탐색
-                if (a->io_timing[i] != -1 && (a->cpu_burst - a->remaining_time) < a->io_timing[i]) {
-                    io_a = a->io_burst[i];
-                    break;
-                }
-            }
-            for (int i = 0; i < MAX_IO_NUM; i++) {
-                if (b->io_timing[i] != -1 && (b->cpu_burst - b->remaining_time) < b->io_timing[i]) {
-                    io_b = b->io_burst[i];
-                    break;
-                }
-            }
-            return io_b - io_a; // burst 길수록 우선 실행되도록
+        case 2: // I/O bound process first
+            return b->total_remaining_io - a->total_remaining_io;
     }
 }
 
@@ -206,7 +193,15 @@ void InitRuntimeData(ProcessData p[], int pNum) {
         p[i].waiting_time = 0;
         p[i].response_time = -1;
         p[i].completion_time = -1;
+        p[i].total_remaining_io = 0;
+        for (int j = 0; j < MAX_IO_NUM; j++) { // 전체 I/O burst 합산
+            if (p[i].io_timing[j] == -1) {
+                break;
+            }
+            p[i].total_remaining_io += p[i].io_burst[j];
+        } 
     }
+    
 }
 
 void Config(ProcessData p[], Queue *ready, Queue *wait, int pNum) {
@@ -244,7 +239,7 @@ void SJF(Queue *ready, ProcessData **running, int current_time, int preemptive, 
 
         Enqueue(state, *running);
         state->rear->time = current_time;
-        state->rear->data = 'p'; // 'p'reempted
+        state->rear->data = 'P'; // 'p'reempted
 
         *running = NULL;
     }
@@ -267,7 +262,7 @@ void Priority(Queue *ready, ProcessData **running, int current_time, int preempt
 
         Enqueue(state, *running);
         state->rear->time = current_time;
-        state->rear->data = 'p'; // 'p'reempted
+        state->rear->data = 'P'; // 'p'reempted
 
         *running = NULL;
     }
@@ -292,7 +287,7 @@ void RoundRobin(Queue *ready, ProcessData **running, int current_time, int time_
 
         Enqueue(state, *running);
         state->rear->time = current_time;
-        state->rear->data = 'e'; // 'e'xpired
+        state->rear->data = 'E'; // 'e'xpired
 
         *running = NULL;
 
@@ -318,7 +313,7 @@ void LotteryScheduling(Queue *ready, ProcessData **running, int current_time, in
         for (Node *node = ready->front; node != NULL; node = node->next) {
             total_tickets += node->p_process->priority;
         }
-        int win = rand() % total_tickets; // 0 ~ total-1 
+        int win = rand() % total_tickets;  
 
         for (Node *node = ready->front; node != NULL; node = node->next) {
             ticket_count += node->p_process->priority;
@@ -335,7 +330,7 @@ void LotteryScheduling(Queue *ready, ProcessData **running, int current_time, in
         //printf("[%2d] process %d : running -> ready (preempted)\n", current_time, (*running)->pid); // log for debugging
         Enqueue(state, *running);
         state->rear->time = current_time;
-        state->rear->data = 'p'; // 'p'reempted
+        state->rear->data = 'E'; // 'e'xpired
 
         *running = NULL;
     }
@@ -354,11 +349,24 @@ void LotteryScheduling(Queue *ready, ProcessData **running, int current_time, in
     }
 }
 
-void LongestIOFirst(Queue *ready, ProcessData **running, int current_time, Queue *state) { // nonpreemptive
+void LongestIOFirst(Queue *ready, ProcessData **running, int current_time, int preemptive, Queue *state) { // I/O bound 프로세스 우선
     // ready queue가 비어 있는 경우
     if (ready->front == NULL) return;
-
     SortReadyQueue(ready, 2);
+    // preemptive
+    if (preemptive && *running != NULL) {
+        // CompareProcess에서 뒤가 더 클 때 return이 양수. 레디큐 맨앞의 io burst가 running보다 커야 preemption 발생
+        if (CompareProcess(ready->front->p_process, (*running), 2) >= 0) return; // 실행중인 프로세스의 io burst가 더 크다 
+        // preempted
+        Enqueue(ready, *running);
+        //printf("[%2d] process %d : running -> ready (preempted)\n", current_time, (*running)->pid); // log for debugging
+
+        Enqueue(state, *running);
+        state->rear->time = current_time;
+        state->rear->data = 'P'; // 'p'reempted
+
+        *running = NULL;
+    }
     // next running
     if (*running == NULL) {
         *running = Dequeue(ready);
@@ -393,8 +401,8 @@ void PrintGanttChart(ProcessData p[], int pNum, Queue *state_queue) {
             }
         }
     }
-    printf("===========================================================================\n");
-    printf("Gantt Chart     (t: terminated, i: I/O interrupt, p: preempted, e: expired)\n");
+    printf("======================================================================================\n");
+    printf("Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)\n");
     printf("Total scheduling time : %d\n", chartSize);
     // upper bar
     printf("       _");
@@ -405,7 +413,7 @@ void PrintGanttChart(ProcessData p[], int pNum, Queue *state_queue) {
     // pid
     printf("process|");
     for (int t = 1; t <= chartSize; t++) {
-        if (pids[t] == -2) printf("i|");
+        if (pids[t] == -2) printf("X|");
         else if (pids[t] == -1) printf("  ");
         else printf("%d|", pids[t]);
     }
@@ -437,7 +445,7 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
     ProcessData *running = NULL;
     Config(p, &ready_queue, &wait_queue, pNum);
     int occupancy_time = 0;
-    int is_idle[2] = {1, 1};
+    int prev_running = 0;
 
     //출력 보조
     Queue state_queue;
@@ -449,9 +457,6 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
         if (running != NULL) {
             running->remaining_time--;
             occupancy_time++;
-            is_idle[0] = 0;
-        } else {
-            is_idle[0] = 1;
         }
             // waiting
         for (Node *node = wait_queue.front; node != NULL; node = node->next) {
@@ -478,11 +483,11 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
 
                 Enqueue(&state_queue, running);
                 state_queue.rear->time = current_time;
-                state_queue.rear->data = 't'; // 't'erminated
+                state_queue.rear->data = 'T'; // 't'erminated
 
                 running = NULL;
             } else {
-                // io event 
+                // io request 
                 int progress = running->cpu_burst - running->remaining_time;
                 for (int i = 0; i < MAX_IO_NUM; i++) { // progress가 io timing 도달했는지 확인
                     if (running->io_timing[i] == -1) { // io가 발생하지 않는 경우
@@ -490,12 +495,13 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                     }
                     if (running->io_timing[i] == progress) {
                         running->remaining_io = running->io_burst[i];
+                        running->total_remaining_io -= running->io_burst[i];
                         //printf("[%2d] process %d : running -> waiting\n", current_time, running->pid); // I/O interrupt // log for debugging
                         Enqueue(&wait_queue, running);
 
                         Enqueue(&state_queue, running);
                         state_queue.rear->time = current_time;
-                        state_queue.rear->data = 'i'; // 'i'nterrupted (I/O)
+                        state_queue.rear->data = 'I'; // 'i'nterrupted (I/O)
 
                         running = NULL;
                         break;
@@ -545,26 +551,25 @@ void Schedule(int alg_id, ProcessData p[], int pNum, int tq) {
                 LotteryScheduling(&ready_queue, &running, current_time, tq, &occupancy_time, &state_queue); // time quantum마다
                 break;
             case 7:
-                LongestIOFirst(&ready_queue, &running, current_time, &state_queue);
+                LongestIOFirst(&ready_queue, &running, current_time, 0, &state_queue);
                 break;
+            case 8:
+                LongestIOFirst(&ready_queue, &running, current_time, 1, &state_queue);
             default:
                 break;
         }
             // state tracking
-        if (running == NULL && !IsAllTerminated(p, pNum)) {
-            //printf("[%2d] idle\n", current_time); // log for debugging
-            is_idle[1] = 1;
-        } else if (running != NULL) {
+        if (running != NULL) {
             if (running->response_time == -1) {
                 running->response_time = current_time - running->arrival_time;
             }
-            is_idle[1] = 0;
+            if (!prev_running) {
+                Enqueue(&state_queue, NULL);
+                state_queue.rear->time = current_time;
+                state_queue.rear->data = 'b'; // idle to 'b'usy
+            }   
         }
-        if (is_idle[0] == 1 && is_idle[1] == 0) {
-            Enqueue(&state_queue, NULL);
-            state_queue.rear->time = current_time;
-            state_queue.rear->data = 'b'; // cpu going 'b'usy
-        }
+        prev_running = (running != NULL);
     }
     PrintGanttChart(p, pNum, &state_queue);
 }
@@ -607,7 +612,10 @@ void Evaluation(int alg_id, ProcessData p[], int pNum) {
             printf("Lottery Scheduling\n");
             break;
         case 7:
-            printf("Nonpreemptive LongestIOFirst\n");
+            printf("Nonpreemptive Longest I/O Burst First\n");
+            break;
+        case 8:
+            printf("Preemptive Longest I/O Burst First\n");
             break;
     }
     printf("average waiting time    : %.2f      (", avg_waiting_time);
@@ -656,8 +664,8 @@ int main(void) {
         Schedule(i, processes, processNum, timeQuantum);
         Evaluation(i, processes, processNum);
         }
-    } else if (mode ==1) { // 특정 알고리즘만 선택하기
-        printf("(0: FCFS, 1: N_SJF, 2: P_SJF, 3: N_Pri, 4: P_Pri, 5: RR, 6: Lottery, 7: N_LongestIOFirst)\n");
+    } else if (mode ==1) { // 특정 알고리즘만 선택실행
+        printf("(0: FCFS, 1: N_SJF, 2: P_SJF, 3: N_Pri, 4: P_Pri, 5: RR, 6: Lottery, 7: N_LongestIOFirst, 8: P_LongestIOFirst)\n");
         printf("scheduling algorithm id(0 ~ %d) : ", SCHEDULERS - 1);
         scanf("%d", &alg_id);
         if (alg_id < 0 || alg_id >= SCHEDULERS) {
