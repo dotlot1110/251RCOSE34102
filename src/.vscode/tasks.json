@@ -1,0 +1,49 @@
+/* 사용자 지정 빌드 명령어들
+*/
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+        "label": "build C program",
+        "type": "shell",
+        "command": "gcc",
+        "args": [
+            "-g",
+            "${file}",
+            "-o",
+            "${fileDirname}\\${fileBasenameNoExtension}.exe"
+        ],
+        "group": {
+            "kind": "build",
+            "isDefault": true
+        },
+        "problemMatcher": [
+            "$gcc"
+        ],
+        "detail": "컴파일 C 파일"
+    },
+    {
+        "type": "cppbuild",
+        "label": "C/C++: gcc.exe 활성 파일 빌드",
+        "command": "C:\\mingw64\\bin\\gcc.exe",
+        "args": [
+            "-fdiagnostics-color=always",
+            "-g",
+            "${file}",
+            "-o",
+            "${fileDirname}\\${fileBasenameNoExtension}.exe"
+        ],
+        "options": {
+            "cwd": "C:\\mingw64\\bin"
+        },
+        "problemMatcher": [
+            "$gcc"
+        ],
+        "group": {
+            "kind": "test",
+            "isDefault": true
+        },
+        "detail": "컴파일러: C:\\mingw64\\bin\\gcc.exe"
+    }
+]
+}

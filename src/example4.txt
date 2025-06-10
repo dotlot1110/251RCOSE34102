@@ -1,0 +1,134 @@
+Simulation mode (0: Schedule by all algorithms, 1: Schedule by specific algorithm) : total process (1~10) : time quantum (1~5) : 
+===============================================================
+| PID | Arrival | Priority | Burst |  I/O info (timing, burst) |
+---------------------------------------------------------------
+|  0  |    4    |     8    |   6   | (4,3)
+|  1  |    1    |     4    |   1   |  N/A
+|  2  |    9    |     7    |   7   | (4,1) (5,2)
+|  3  |    8    |     9    |   9   |  N/A
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 28
+       _________________________________________________________
+process|X|1|  X|      0|                3|      2|  0|2|  X|  2|
+event  |_|T|___|______I|________________T|______I|__T|I|___|__T|
+time   0 1 2   4       8                17      21  2324  26  28
+
+Performance of FCFS algorithm
+average waiting time    : 4.75      (10, 0, 9, 0)
+average turnaround time : 12.00      (19, 1, 19, 9)
+average response time   : 2.00      (0, 0, 8, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 29
+       ___________________________________________________________
+process|X|1|  X|      0|                3|  0|      2|X|2|  X|  2|
+event  |_|T|___|______I|________________T|__T|______I|_|I|___|__T|
+time   0 1 2   4       8                17  19      232425  27  29
+
+Performance of Nonpreemptive SJF algorithm
+average waiting time    : 4.00      (6, 0, 10, 0)
+average turnaround time : 11.25      (15, 1, 20, 9)
+average response time   : 2.50      (0, 0, 10, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 26
+       _____________________________________________________
+process|X|1|  X|      0|3|  2|  0|  2|3|2|  3|  2|        3|
+event  |_|T|___|______I|P|__P|__T|__I|P|I|__P|__T|________T|
+time   0 1 2   4       8 9  11  13  151617  19  21        26
+
+Performance of Preemptive SJF algorithm
+average waiting time    : 2.75      (0, 0, 2, 9)
+average turnaround time : 10.00      (9, 1, 12, 18)
+average response time   : 0.00      (0, 0, 0, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 28
+       _________________________________________________________
+process|X|1|  X|      0|                3|      2|  0|2|  X|  2|
+event  |_|T|___|______I|________________T|______I|__T|I|___|__T|
+time   0 1 2   4       8                17      21  2324  26  28
+
+Performance of Nonpreemptive Priority algorithm
+average waiting time    : 4.75      (10, 0, 9, 0)
+average turnaround time : 12.00      (19, 1, 19, 9)
+average response time   : 2.00      (0, 0, 8, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 26
+       _____________________________________________________
+process|X|1|  X|      0|3|      2|0|2|0|3|  2|            3|
+event  |_|T|___|______I|P|______I|P|I|T|P|__T|____________T|
+time   0 1 2   4       8 9      1314151617  19            26
+
+Performance of Preemptive Priority algorithm
+average waiting time    : 3.00      (3, 0, 0, 9)
+average turnaround time : 10.25      (12, 1, 10, 18)
+average response time   : 0.00      (0, 0, 0, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 26
+       _____________________________________________________
+process|X|1|  X|0|0|0|0|3|2|3|2|0|3|2|0|3|2|3|2|3|3|2|3|2|3|
+event  |_|T|___|E|E|E|I|E|E|E|E|E|E|E|T|E|I|E|I|E|E|E|E|T|T|
+time   0 1 2   4 5 6 7 8 91011121314151617181920212223242526
+
+Performance of RoundRobin algorithm
+average waiting time    : 4.50      (3, 0, 6, 9)
+average turnaround time : 11.75      (12, 1, 16, 18)
+average response time   : 0.00      (0, 0, 0, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 26
+       _____________________________________________________
+process|X|1|  X|0|0|0|0|3|2|3|3|3|2|2|2|0|2|0|3|3|2|3|2|3|3|
+event  |_|T|___|E|E|E|I|E|E|E|E|E|E|E|I|E|I|T|E|E|E|E|T|E|T|
+time   0 1 2   4 5 6 7 8 91011121314151617181920212223242526
+
+Performance of Lottery Scheduling algorithm
+average waiting time    : 5.00      (6, 0, 5, 9)
+average turnaround time : 12.25      (15, 1, 15, 18)
+average response time   : 0.00      (0, 0, 0, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 28
+       _________________________________________________________
+process|X|1|  X|      0|                3|      2|  0|2|  X|  2|
+event  |_|T|___|______I|________________T|______I|__T|I|___|__T|
+time   0 1 2   4       8                17      21  2324  26  28
+
+Performance of Nonpreemptive Longest I/O Burst First algorithm
+average waiting time    : 4.75      (10, 0, 9, 0)
+average turnaround time : 12.00      (19, 1, 19, 9)
+average response time   : 2.00      (0, 0, 8, 0)
+
+
+======================================================================================
+Gantt Chart     (T: terminated, I: I/O request, P: preempted, E: time quantum expired)
+Total scheduling time : 26
+       _____________________________________________________
+process|X|1|  X|      0|3|      2|3|2|  0|            3|  2|
+event  |_|T|___|______I|P|______I|P|I|__T|____________T|__T|
+time   0 1 2   4       8 9      131415  17            24  26
+
+Performance of Preemptive Longest I/O Burst First algorithm
+average waiting time    : 4.50      (4, 0, 7, 7)
+average turnaround time : 11.75      (13, 1, 17, 16)
+average response time   : 0.00      (0, 0, 0, 0)
+
+
