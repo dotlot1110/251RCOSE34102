@@ -51,7 +51,7 @@ int IsAllTerminated(ProcessData p[], int pNum);
 
 /* simulator.c  시뮬레이션 환경 초기화 및 시간 단위 루프 반복 관련 함수 */
 void Config(ProcessData p[], int pNum, int qNum, ...);
-void Schedule(int alg_id, ProcessData p[], int pNum, int tq);
+void Schedule(int alg_id, ProcessData p[], int pNum, int timeQuantum);
 
 /* queue.c      큐 생성 및 조작 관련 함수 */
 void InitQueue(Queue *q);
